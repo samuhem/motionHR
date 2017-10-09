@@ -9,7 +9,7 @@ classdef MotionHR
     %   Author: S.Hemminki
     %   All rights reserved.
     %
-    %   Date: 19/09/2017
+    %   Date: 09/10/2017
     %   Ver: 0.9
     %
     
@@ -148,42 +148,6 @@ classdef MotionHR
             end
  
             obj.HRData.(provider) = parsedData;
-        end
-        
-        % Compare HR with Motion
-        function obj = compareMotionWithHR(obj)
-           
-            % Align HR with Motion
-            if isempty(obj.MotionData) || isempty(obj.HRData)
-                disp('MotionData and/or HRData not initialised!');
-                return;
-            end
-
-            aligned  = obj.MotionData;
-            % obj, G] = obj.getFusionGrav(aligned);
-
-            HRDataTypes = fieldnames(obj.HRData);
-            for i=1:length(HRDataTypes)
-                aligned = alignTimeseries(aligned,obj.HRData.(HRDataTypes{i}));
-            end
-            
-        end
-
-        % Pipeline [deprecated, was used to test earlier data set]
-        function obj = runPipeline(obj, motionData, band2, fitbit, polar)
-           
-            obj.MotionData = [];
-            obj.HRData = [];
-           
-            % Resampling interval as median of dtime between samples
-            obj.resamplingInterval = median( diff(motionData(:,1)) );
-            
-            obj = obj.addMotionData(motionData);
-            obj = obj.addHRData(band2,'band2');
-            obj = obj.addHRData(fitbit,'fitbit');
-            obj = obj.addHRData(polar,'polar');
-            obj = obj.compareMotionWithHR;
-           
         end
 
     end
