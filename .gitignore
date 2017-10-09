@@ -1,0 +1,16 @@
+# Data folders
+raw/
+semiraw/
+
+# Images and figures
+*.png
+*.fig
+
+# Data files
+*.csv
+
+# Archives
+*.zip
+
+# pdf
+*.pdf
