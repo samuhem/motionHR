@@ -1,2 +1,0 @@
-[Time]
-BootTime = 7899.6353
