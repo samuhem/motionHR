@@ -36,6 +36,8 @@ classdef MotionHR
                
         RESAMPLE_RATE = 50;
         
+        segmentsUri = 'D:\Data\Univ\HR\segments_timestamp.csv';
+        
     end
     
     properties
@@ -54,9 +56,10 @@ classdef MotionHR
         % Gravity Estimation
         initG;
         
-        % User
+        % Experiment
         id;
         testPattern;
+        activities;
         
     end
     
@@ -124,6 +127,22 @@ classdef MotionHR
             
         end
         
+        % Segment activities
+        function obj = segmentActivities(obj, uri)
+            
+            rawSegments  = dlmread(uri, ',', 1, 0);
+            userSegments = rawSegments(rawSegments(:,1) == obj.id, :);
+            n = size(userSegments, 1);
+            
+            for i=1:n
+                a.id(i)       = userSegments(i,2);
+                a.ts_start(i) = userSegments(i,3);
+                a.ts_end(i)   = userSegments(i,4);
+            end
+            
+            obj.activities = a;
+        end
+        
         % Add motiondata
         function obj = addMotionData(obj, input)
             
@@ -160,11 +179,32 @@ classdef MotionHR
         % Analyse MotionData
         function obj = analyseMotion(obj)
            
-            % Perform gravity elimination
-            grav = obj.getGravityWithMahony();
+            t   = obj.motionData(:, obj.DataIndex.ts);
+            acc = obj.motionData(:, obj.DataIndex.accel);
+            gyr = obj.motionData(:, obj.DataIndex.gyro);
+
+            % Perform gravity estimation
+            grav = obj.getGravityWithMahony(t, acc, gyr);
             
-            a = 1;
+            % Rotate measurements
+            racc = obj.rotateData(grav, acc);
+            rgyr = obj.rotateData(grav, gyr);
             
+            % Get Representations
+            [~, accPca]     = pca(acc);                       % a_pca                
+            accMagn         = getMagnitude(acc);              % a_magn
+            [~, laccPca]    = pca(acc-grav);                  % al_pca1-3
+            laccMagn        = getMagnitude(acc-grav);         % al_magn
+            rlacc_v         = racc(:,3);                      % ar_v
+            [~,rlacc_h_Pca] = pca(racc(:,1:2));               % ar_h_pca1-2
+            rlacc_h_Magn    = getMagnitude(racc(:,1:2));      % ar_h_magn
+            [~,totG]        = pca(grav);                      % totgrav
+            [~,gyrPca]      = pca(gyr);                       % g_pca1-3
+            gyrMagn         = getMagnitude(gyr);              % g_magn
+            rgyr_v          = rgyr(:,3);                      % gr_v
+            [~,rgyr_h_Pca]  = pca(rgyr(:,1:2));               % gr_h_pca1-2
+            rgyr_h_Magn     = getMagnitude(rgyr(:,1:2));      % gr_h_magn
+
         end
         
     end
@@ -180,7 +220,7 @@ classdef MotionHR
             uriSplits = strsplit(uri,'\');
             dataFolder = uriSplits{end};
             folderSplits = strsplit(dataFolder, '_');
-            id = folderSplits{1};
+            id = str2num(folderSplits{1});
             pattern = folderSplits{2};
         end  
         
@@ -277,11 +317,7 @@ classdef MotionHR
         % Gravity estimation with Mahony 
         % Part of project "On Attitude Estimation with Smartphones" 
         % URI: http://tyrex.inria.fr/mobile/benchmarks-attitude
-        function grav = getGravityWithMahony(obj)
-           
-            t   = obj.motionData(:, obj.DataIndex.ts);
-            acc = obj.motionData(:, obj.DataIndex.accel);
-            gyr = obj.motionData(:, obj.DataIndex.gyro);
+        function grav = getGravityWithMahony(obj, t, acc, gyr)
             
             % Create dummy values for missing Magnetometer
             context.magnetic.vector = [0 0 0];
@@ -298,6 +334,43 @@ classdef MotionHR
             grav = obj.quat2grav(q);
             
         end
+  
+        % Rotate data to horizontal plane from known euler angles
+        function rotated = rotateData(obj, gravity, data)
+            
+            Gx = gravity(:,1); 
+            Gy = gravity(:,2); 
+            Gz = gravity(:,3);
+            
+            Ax = data(:,1); 
+            Ay = data(:,2); 
+            Az = data(:,3);
+            
+            rotated = zeros(size(data));
+            
+            for i=1:length(Ax)
+                
+                % Calculate roll sin and cos
+                Sin_r = Gx(i)/sqrt( Gx(i)^2 + Gz(i)^2 ); % sin of Phi
+                Cos_r = Gz(i)/sqrt( Gx(i)^2 + Gz(i)^2 ); % cos of Phi
+                
+                % Derotate by roll
+                Ax_r = Ax(i)*Cos_r - Az(i)*Sin_r;
+                Az_r = Ax(i)*Sin_r + Az(i)*Cos_r;
+                Gz_r = Gx(i)*Sin_r + Gz(i)*Cos_r;
+                
+                % Calculate pitch sin and cos
+                Sin_p = -Gy(i)/sqrt( Gz_r^2 + Gy(i)^2 ); % sin of Theta
+                Cos_p = Gz_r/sqrt( Gz_r^2 + Gy(i)^2 );   % cos of Theta
+                
+                % Derotate by pitch
+                Ay_rp = Ay(i)*Cos_p + Az_r*Sin_p;
+                Az_rp = -Ay(i)*Sin_p + Az_r*Cos_p;
+                
+                rotated(i,:) = [Ax_r, Ay_rp, Az_rp];
+            end 
+        end
+       
         
         % Get gravity vector from quaternion
         function g = quat2grav(obj, q)

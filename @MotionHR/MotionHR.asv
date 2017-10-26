@@ -36,6 +36,8 @@ classdef MotionHR
                
         RESAMPLE_RATE = 50;
         
+        segmentsUri = 'D:\Data\Univ\HR\segments_timestamp.csv';
+        
     end
     
     properties
@@ -124,6 +126,22 @@ classdef MotionHR
             
         end
         
+        % Segment activities
+        function obj = segmentActivities(obj, uri)
+            
+            rawSegments  = dlmread(uri, ',', 1, 0);
+            userSegments = rawSegments(rawSegments(:,1) == obj.id, :);
+            
+            n = size(userSegments, 1);
+            
+            for i=1:n
+                activityID = userSegments(i,2);
+                ts_start   = userSegments(i,3);
+                ts_end     = userSegments(i,4);
+            end
+            
+        end
+        
         % Add motiondata
         function obj = addMotionData(obj, input)
             
@@ -157,9 +175,44 @@ classdef MotionHR
             obj.hrData.(provider) = parsedData;
         end
 
+        % Analyse MotionData
+        function obj = analyseMotion(obj)
+           
+            t   = obj.motionData(:, obj.DataIndex.ts);
+            acc = obj.motionData(:, obj.DataIndex.accel);
+            gyr = obj.motionData(:, obj.DataIndex.gyro);
+
+            % Perform gravity estimation
+            grav = obj.getGravityWithMahony(t, acc, gyr);
+            
+            % Rotate measurements
+            racc = obj.rotateData(grav, acc);
+            rgyr = obj.rotateData(grav, gyr);
+            
+            % Get Representations
+            [~, accPca]     = pca(acc);                       % a_pca                
+            accMagn         = getMagnitude(acc);              % a_magn
+            [~, laccPca]    = pca(acc-grav);                  % al_pca1-3
+            laccMagn        = getMagnitude(acc-grav);         % al_magn
+            rlacc_v         = racc(:,3);                      % ar_v
+            [~,rlacc_h_Pca] = pca(racc(:,1:2));               % ar_h_pca1-2
+            rlacc_h_Magn    = getMagnitude(racc(:,1:2));      % ar_h_magn
+            [~,totG]        = pca(grav);                      % totgrav
+            [~,gyrPca]      = pca(gyr);                       % g_pca1-3
+            gyrMagn         = getMagnitude(gyr);              % g_magn
+            rgyr_v          = rgyr(:,3);                      % gr_v
+            [~,rgyr_h_Pca]  = pca(rgyr(:,1:2));               % gr_h_pca1-2
+            rgyr_h_Magn     = getMagnitude(rgyr(:,1:2));      % gr_h_magn
+
+        end
+        
     end
         
     methods (Access = private)
+        
+        % =================================================================
+        % PARSING
+        % =================================================================
         
         % Parse UserID and test order from url
         function [id,pattern] = parseIdAndPatternFromFolderName(obj, uri) 
@@ -256,35 +309,80 @@ classdef MotionHR
             
         end
         
-        % ====================================
-        % MOTION ANALYSIS
-        % ====================================
+        % =================================================================
+        % ANALYSIS
+        % =================================================================
         
         % Gravity estimation with Mahony 
         % Part of project "On Attitude Estimation with Smartphones" 
         % URI: http://tyrex.inria.fr/mobile/benchmarks-attitude
-        function g = getGravityWithMahony(obj)
-           
-            t
-            accel = obj.motionData(:, obj.DataIndex.accel);
-            gyro = obj.motionData(:, obj.DataIndex.gyro);
-            
+        function grav = getGravityWithMahony(obj, t, acc, gyr)
             
             % Create dummy values for missing Magnetometer
+            context.magnetic.vector = [0 0 0];
+            context.magnetic.declination = 0;
             dummyMagn = zeros(length(acc),3);
-            context.magnetic.vector = [0 0 1];
-            context.gravity.vector = [0 0 9.81];
-
+            
+            % Set reference gravity to 1
+            context.gravity.vector = [0 0 1];
+            
+            % Utilise framework from the referenced project
             q = generateAttitude(t, acc, gyr, dummyMagn, 'mahony', context, 'ENU');
             
+            % Map quaterns into gravity vector
+            grav = obj.quat2grav(q);
             
         end
+  
+        % Rotate data to horizontal plane from known euler angles
+        function rotated = rotateData(obj, gravity, data)
+            
+            Gx = gravity(:,1); 
+            Gy = gravity(:,2); 
+            Gz = gravity(:,3);
+            
+            Ax = data(:,1); 
+            Ay = data(:,2); 
+            Az = data(:,3);
+            
+            rotated = zeros(size(data));
+            
+            for i=1:length(Ax)
+                
+                % Calculate roll sin and cos
+                Sin_r = Gx(i)/sqrt( Gx(i)^2 + Gz(i)^2 ); % sin of Phi
+                Cos_r = Gz(i)/sqrt( Gx(i)^2 + Gz(i)^2 ); % cos of Phi
+                
+                % Derotate by roll
+                Ax_r = Ax(i)*Cos_r - Az(i)*Sin_r;
+                Az_r = Ax(i)*Sin_r + Az(i)*Cos_r;
+                Gz_r = Gx(i)*Sin_r + Gz(i)*Cos_r;
+                
+                % Calculate pitch sin and cos
+                Sin_p = -Gy(i)/sqrt( Gz_r^2 + Gy(i)^2 ); % sin of Theta
+                Cos_p = Gz_r/sqrt( Gz_r^2 + Gy(i)^2 );   % cos of Theta
+                
+                % Derotate by pitch
+                Ay_rp = Ay(i)*Cos_p + Az_r*Sin_p;
+                Az_rp = -Ay(i)*Sin_p + Az_r*Cos_p;
+                
+                rotated(i,:) = [Ax_r, Ay_rp, Az_rp];
+            end 
+        end
+       
         
         % Get gravity vector from quaternion
         function g = quat2grav(obj, q)
-            g(1) = 2 * (q(2) * q(4) - q(1) * q(3));
-            g(2) = 2 * (q(1) * q(2) + q(3) * q(4));
-            g(3) = q(1) * q(1) - q(2) * q(2) - q(3) * q(3) + q(4) * q(4);
+            
+            n = size(q, 1);
+            g = zeros(n, 3);
+            
+            for i = 1:n
+                g(i,1) = 2 * (q(i,2) * q(i,4) - q(i,1) * q(i,3));
+                g(i,2) = 2 * (q(i,1) * q(i,2) + q(i,3) * q(i,4));
+                g(i,3) = q(i,1) * q(i,1) - q(i,2) * q(i,2) - q(i,3) * q(i,3) + q(i,4) * q(i,4);
+            end
+            
         end
   
         
