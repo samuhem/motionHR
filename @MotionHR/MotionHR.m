@@ -5,7 +5,8 @@ classdef MotionHR
     % Use with raw data URI to raw data folder.
     % For example to target data in folder 'd:\univ\data\HR\raw\01_ABC':
     %  m = MotionHR;
-    %  m = m.parseFromRaw('d:\univ\data\HR\raw\01_ABC');
+    %  m = m.parseFromFolder('d:\univ\data\HR\raw\01_ABC');
+    %  m = m.segmentActivities('d:\Data\Univ\HR\segments_timestamp.csv');
     %
     %   Uses attitude estimation from project "On Attitude Estimation with Smartphones" 
     %   URL: http://tyrex.inria.fr/mobile/benchmarks-attitude
@@ -38,8 +39,6 @@ classdef MotionHR
                    'HR_BPM',        2);
                
         RESAMPLE_RATE = 50;
-        
-        segmentsUri = 'D:\Data\Univ\HR\segments_timestamp.csv';
         
     end
     
