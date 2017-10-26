@@ -190,6 +190,12 @@ classdef MotionHR
         % Main pipeline for the analysis
         function obj = analysisPipeline(obj)
             
+            % Dataframe length in seconds
+            frameLength = 1;
+            
+            % Overlap in percentage
+            overlap     = 50;
+            
             % Loop through activities
             for i=obj.activities.id
                 
@@ -206,11 +212,9 @@ classdef MotionHR
                 rep = obj.getMotionRepresentations(t, acc, gyr);
                 
                 % Extract features
+                motionFeatures = obj.computeMotionFeatures(t, rep, frameLength, overlap);
                 
-                
-                accWithTime = [t,acc];
-                
-                obj.splitToFramesByTime(accWithTime, 5);
+                % Analyse 
                 
             end
             
@@ -331,44 +335,7 @@ classdef MotionHR
             t            = data(:, obj.DataIndex.ts);
             activityData = data(t>=t_start & t<=t_end, :);
         end
-     
-        % Calculate basic timedomain features
-        function features = getTimedomainFeatures(obj, input)
-            features = [                       ...
-                mean(input),                  ...
-                median(input),                ...
-                std(input),                   ...
-                var(input),                   ...
-                min(input),                   ...
-                max(input),                   ...
-                range(input),                 ...
-                valueCross(input, 'zero'),    ...
-                valueCross(input, 'mean')];  
-        end
-        
-        % Calculate Frequencydomain features
-        function features = getFrequencydomainFeatures(obj, input) 
-            
-            
-        end
-        
-        % Split data to frames of specified duration
-        function frames = splitToFramesByTime(obj, input, t_frame) 
-            t       = input(:, obj.DataIndex.ts);
-            data    = input(:, 2:end);
-            n       = length(t);
-            i_start = 1;
-            i       = 1;
-            
-            while i_start < n
-                t_start     = t(i_start);
-                i_end       = min([n, find(t > (t_start + t_frame), 1, 'first')]);
-                frames{i}   = data(i_start:i_end,:);
-                i_start     = i_end+1;
-                i           = i+1;
-            end     
-        end
-        
+
         % Get motion representatios
         function representations = getMotionRepresentations(obj, t, acc, gyr)
 
@@ -397,19 +364,18 @@ classdef MotionHR
             rgyr_h_Magn     = getMagnitude(rgyr(:,1:2));      % gr_h_magn
 
             % Wrap as structure
-            representations.a_lacc      = lacc;
-            representations.a_pca       = accPca;
+            representations.a_pca1      = accPca(:,1);
             representations.a_magn      = accMagn;
-            representations.al_pca      = laccPca;
+            representations.al_pca1     = laccPca(:,1);
             representations.al_magn     = laccMagn;
             representations.alr_v       = rlacc_v;
-            representations.alr_h_pca   = rlacc_h_Pca;
+            representations.alr_h_pca1  = rlacc_h_Pca(:,1);
             representations.alr_h_magn  = rlacc_h_Magn;
             representations.totgrav     = totG(:,1);
-            representations.g_pca       = gyrPca;
+            representations.g_pca1      = gyrPca(:,1);
             representations.g_magn      = gyrMagn;
             representations.gr_v        = rgyr_v;
-            representations.gr_h_pca    = rgyr_h_Pca;
+            representations.gr_h_pca1   = rgyr_h_Pca(:,1);
             representations.gr_h_magn   = rgyr_h_Magn;
             
         end
@@ -483,6 +449,148 @@ classdef MotionHR
                 g(i,3) = q(i,1) * q(i,1) - q(i,2) * q(i,2) - q(i,3) * q(i,3) + q(i,4) * q(i,4);
             end
             
+        end
+          
+        % Compute features from the motion representations
+        function features = computeMotionFeatures(obj, t, rep, frameLen, overlap)
+            
+            repPointers = fieldnames(rep); 
+            
+            for i=1:length(repPointers)
+                
+                rp = repPointers{i};
+                repData = [t,rep.(rp)];
+                [frames, t_frames] = obj.splitToFramesByTime(repData, frameLen, overlap);
+ 
+                for j=1:length(frames)
+                    frame = frames{j};
+                    tdf(j,:) = obj.getTimedomainFeatures(frame);
+                    fdf(j,:) = obj.getFreqDomainFeatures(frame, obj.RESAMPLE_RATE);
+                end
+                
+                features.(rp).td = tdf;
+                features.(rp).fd = fdf;
+                features.(rp).t  = t_frames;
+            end
+        end
+        
+        % Split data to frames of specified duration with overlap(in percentage)
+        function [frames, t_frames] = splitToFramesByTime(obj, input, frameLen, overlap) 
+            t       = input(:, obj.DataIndex.ts);
+            data    = input(:, 2:end);
+            n       = length(t);
+            i_start = 1;
+            i       = 1;
+            
+            while i_start < n
+                t_start     = t(i_start);
+                i_end       = find(t > (t_start + frameLen), 1, 'first');
+                % Omit the last incomplete frame
+                if isempty(i_end)
+                    break;
+                end
+                frames{i}   = data(i_start:i_end,:);
+                t_frames{i} = t(i_start:i_end);
+                % Apply overlap
+                step        = length((i_start:i_end)) * (100-overlap)/100; 
+                i_start     = floor(i_start + step + 1);
+                i           = i+1;
+            end     
+        end
+        
+        % Calculate basic timedomain features
+        function features = getTimedomainFeatures(obj, input)
+            features = [                       ...
+                mean(input),                  ...
+                median(input),                ...
+                std(input),                   ...
+                var(input),                   ...
+                min(input),                   ...
+                max(input),                   ...
+                range(input),                 ...
+                valueCross(input, 'zero'),    ...
+                valueCross(input, 'mean')];  
+        end
+        
+        % Return a set of frequency domain features
+        function features = getFreqDomainFeatures(obj, input, samplingRate)
+            
+            % Zero-padding requires removing mean
+            input = input-mean(input);
+            
+            % Get zero-padded FFT of length 2^nextpow2(input)
+            inputL = size(input,1);
+            nextpw2 = nextpow2(inputL);
+            F = fft(input,2^nextpw2);
+            
+            % Magnitude of FFT
+            F_magn = sqrt( real(F).^2 + imag(F).^2 ) / (inputL);
+            fftLen = length(F_magn);
+            
+            % Remove DC component
+            F_magn(1) = [];
+            
+            % Center point
+            center = floor(length(F_magn)/2);
+            
+            % Resample F_magn at x2 rate
+            resampled = zeros(1,center*2-1);
+            resampled(1:2:length(resampled)) = F_magn(1:center);
+            for i=2:2:length(resampled)
+                resampled(i) = (resampled(i-1)+resampled(i+1)) /2;
+            end
+
+            % Bin to Hz
+            samplesPerBin = round(inputL / (samplingRate)); % 2* because of 0.5hz bins, 1* because of resampling)
+            binCount = floor(length(resampled) / samplesPerBin);
+            bins = reshape(resampled(1:binCount*samplesPerBin),[samplesPerBin,binCount]);
+            
+            if samplesPerBin > 1
+                energyPer_05Hz = mean(bins);
+            else
+                energyPer_05Hz = bins;
+            end
+            
+            % energyPer_05Hz = winfeats(F_magn(2:round(fftLen/2)),binsPer05Hz,'trapz');
+            Ftot_1to5hz = sum(energyPer_05Hz(1:10));
+            Ftot = sum(energyPer_05Hz);
+            
+            % Relation of frequency components
+            Frel_1to10 = energyPer_05Hz(1:10)./Ftot_1to5hz;
+            
+            % Relation of 1-5Hz to total energy
+            Frel_1to10toAll = energyPer_05Hz(1:10)./Ftot;
+            
+            % Sum of >5s frequencies
+            Ftot_5plusHz = sum(energyPer_05Hz(11:end));
+            
+            % Dominant frequency
+            [~,Fmax] = max(energyPer_05Hz);
+            
+            % Dominant frequency relation to all
+            FmaxToAll = energyPer_05Hz(Fmax) / Ftot;
+            
+            % 50% Energy point
+            c = cumsum(energyPer_05Hz);
+            halfEnergyIdx = find(c>(Ftot/2),1,'first');
+            
+            % Spectral entropy
+            Q = energyPer_05Hz./Ftot;
+            H = Q.*log2(1./Q);
+            spectralEntropy = sum(H)/log2(binCount);
+            
+            % Return result vector
+            features = [
+                energyPer_05Hz(1:10),   ...
+                Frel_1to10,             ...
+                Frel_1to10toAll,        ...
+                Ftot_1to5hz,            ...
+                Ftot_5plusHz,           ...
+                Fmax,                   ...
+                FmaxToAll,              ...
+                halfEnergyIdx,          ...
+                Ftot,                   ...
+                spectralEntropy];
         end
         
     end
