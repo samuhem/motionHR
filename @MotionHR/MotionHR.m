@@ -53,9 +53,6 @@ classdef MotionHR
         % Motion data 
         resamplingInterval;
         
-        % Gravity Estimation
-        initG;
-        
         % Experiment
         id;
         testPattern;
@@ -65,9 +62,17 @@ classdef MotionHR
     
     methods
         
+        % =================================================================
+        % CONSTRUCTOR
+        % =================================================================
+        
         % Empty constructor
         function obj = MotionHR()
         end
+        
+        % =================================================================
+        % PARSING (PUBLIC)
+        % =================================================================
         
         % Parse from RawFolder
         function obj = parseFromFolder(obj, uri)
@@ -158,7 +163,7 @@ classdef MotionHR
             obj.motionData = input;
         end
         
-        % Add HR rata from provider
+        % Add HRrate from provider
         function obj = addHRData(obj, data, provider)
             
             switch(provider)
@@ -176,6 +181,10 @@ classdef MotionHR
             obj.hrData.(provider) = parsedData;
         end
 
+        % =================================================================
+        % ANALYSIS (PUBLIC)
+        % =================================================================
+        
         % Analyse MotionData
         function obj = analyseMotion(obj)
            
@@ -212,7 +221,7 @@ classdef MotionHR
     methods (Access = private)
         
         % =================================================================
-        % PARSING
+        % PARSING (PRIVATE)
         % =================================================================
         
         % Parse UserID and test order from url
@@ -311,8 +320,20 @@ classdef MotionHR
         end
         
         % =================================================================
-        % ANALYSIS
+        % ANALYSIS (PRIVATE)
         % =================================================================
+        
+        % Get data for activity
+        function activityData = getDataForActivity(obj, activityID, data)
+            
+            i_activity   = find(obj.activities.id == activityID, 1, 'first');
+            t_start      = obj.activities.ts_start(i_activity);
+            t_end        = obj.activities.ts_end(i_activity);
+            
+            t            = data(:, obj.DataIndex.ts);
+            activityData = data(t>=t_start & t<=t_end, :);
+            
+        end
         
         % Gravity estimation with Mahony 
         % Part of project "On Attitude Estimation with Smartphones" 
@@ -370,7 +391,6 @@ classdef MotionHR
                 rotated(i,:) = [Ax_r, Ay_rp, Az_rp];
             end 
         end
-       
         
         % Get gravity vector from quaternion
         function g = quat2grav(obj, q)
