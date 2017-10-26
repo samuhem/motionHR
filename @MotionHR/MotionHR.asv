@@ -7,11 +7,14 @@ classdef MotionHR
     %  m = MotionHR;
     %  m = m.parseFromRaw('d:\univ\data\HR\raw\01_ABC');
     %
+    %   Uses attitude estimation from project "On Attitude Estimation with Smartphones" 
+    %   URL: http://tyrex.inria.fr/mobile/benchmarks-attitude
+    %
     %   Author: S.Hemminki
     %   All rights reserved.
     %
-    %   Date: 09/10/2017
-    %   Ver: 0.9
+    %   Date: 26/10/2017
+    %   Ver: 0.91
     %
     
     properties(Constant)
@@ -163,7 +166,7 @@ classdef MotionHR
             obj.motionData = input;
         end
         
-        % Add HR rate from provider
+        % Add HRrate from provider
         function obj = addHRData(obj, data, provider)
             
             switch(provider)
@@ -185,28 +188,49 @@ classdef MotionHR
         % ANALYSIS (PUBLIC)
         % =================================================================
         
-        % Analyse MotionData
-        function obj = analyseMotion(obj)
-           
-            t   = obj.motionData(:, obj.DataIndex.ts);
-            acc = obj.motionData(:, obj.DataIndex.accel);
-            gyr = obj.motionData(:, obj.DataIndex.gyro);
+        % Main pipeline for the analysis
+        function analysisPipeline(obj)
+            
+            % Loop through activities
+            for i=obj.activities.id
+                
+                % Get activity data
+                motion   = obj.getDataForActivity(i, obj.motionData);
+                polarHR  = obj.getDataForActivity(i, obj.hrData.polar);
+                fitbitHR = obj.getDataForActivity(i, obj.hrData.fitbit);
+                bandHR   = obj.getDataForActivity(i, obj.hrData.band2);
+                
+                % Get motionData representations
+                t   = motionData(:, obj.DataIndex.ts);
+                acc = motionData(:, obj.DataIndex.accel);
+                gyr = motionData(:, obj.DataIndex.gyro);
+                
+                representations = obj.getMotionRepresentations(t, acc, gyr);
+                
+            end
+            
+        end
+        
+        % Get MotionData representatios
+        function representations = getMotionRepresentations(obj, t, acc, gyr)
 
             % Perform gravity estimation
             grav = obj.getGravityWithMahony(t, acc, gyr);
             
             % Rotate measurements
-            racc = obj.rotateData(grav, acc);
-            rgyr = obj.rotateData(grav, gyr);
+            racc  = obj.rotateData(grav, acc);
+            rlacc = obj.rotateData(grav, acc - grav);
+            rgyr  = obj.rotateData(grav, gyr);
             
             % Get Representations
+            lacc            = acc-grav;                       % a_lacc
             [~, accPca]     = pca(acc);                       % a_pca                
             accMagn         = getMagnitude(acc);              % a_magn
-            [~, laccPca]    = pca(acc-grav);                  % al_pca1-3
-            laccMagn        = getMagnitude(acc-grav);         % al_magn
-            rlacc_v         = racc(:,3);                      % ar_v
-            [~,rlacc_h_Pca] = pca(racc(:,1:2));               % ar_h_pca1-2
-            rlacc_h_Magn    = getMagnitude(racc(:,1:2));      % ar_h_magn
+            [~, laccPca]    = pca(lacc);                      % al_pca1-3
+            laccMagn        = getMagnitude(lacc);             % al_magn
+            rlacc_v         = rlacc(:,3);                     % ar_v
+            [~,rlacc_h_Pca] = pca(rlacc(:,1:2));              % ar_h_pca1-2
+            rlacc_h_Magn    = getMagnitude(rlacc(:,1:2));     % ar_h_magn
             [~,totG]        = pca(grav);                      % totgrav
             [~,gyrPca]      = pca(gyr);                       % g_pca1-3
             gyrMagn         = getMagnitude(gyr);              % g_magn
@@ -214,7 +238,25 @@ classdef MotionHR
             [~,rgyr_h_Pca]  = pca(rgyr(:,1:2));               % gr_h_pca1-2
             rgyr_h_Magn     = getMagnitude(rgyr(:,1:2));      % gr_h_magn
 
+            % Wrap as structure
+            representations.a_lacc      = lacc;
+            representations.a_pca       = accPca;
+            representations.a_magn      = accMagn;
+            representations.al_pca      = laccPca;
+            representations.al_magn     = laccMagn;
+            representations.alr_v       = rlacc_v;
+            representations.alr_h_pca   = rlacc_h_Pca;
+            representations.alr_h_magn  = rlacc_h_Magn;
+            representations.totgrav     = totG(:,1);
+            representations.g_pca       = gyrPca;
+            representations.g_magn      = gyrMagn;
+            representations.gr_v        = rgyr_v;
+            representations.gr_h_pca    = rgyr_h_Pca;
+            representations.gr_h_magn   = rgyr_h_Magn;
+            
         end
+        
+        % 
         
     end
         
@@ -337,7 +379,7 @@ classdef MotionHR
         
         % Gravity estimation with Mahony 
         % Part of project "On Attitude Estimation with Smartphones" 
-        % URI: http://tyrex.inria.fr/mobile/benchmarks-attitude
+        % URL: http://tyrex.inria.fr/mobile/benchmarks-attitude
         function grav = getGravityWithMahony(obj, t, acc, gyr)
             
             % Create dummy values for missing Magnetometer
