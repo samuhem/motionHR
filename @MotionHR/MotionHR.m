@@ -214,7 +214,14 @@ classdef MotionHR
                 % Extract features
                 motionFeatures = obj.computeMotionFeatures(t, rep, frameLength, overlap);
                 
-                % Analyse 
+                % Analyse HR vs. motion correlations
+                
+                
+                % Get HR error for fitbit and band, assuming Polar is ground truth
+                
+                
+                % Train a model to predict HR Error 
+                
                 
             end
             

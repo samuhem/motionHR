@@ -193,6 +193,9 @@ classdef MotionHR
             % Dataframe length in seconds
             frameLength = 1;
             
+            % Overlap in percentage
+            overlap     = 50;
+            
             % Loop through activities
             for i=obj.activities.id
                 
@@ -209,9 +212,16 @@ classdef MotionHR
                 rep = obj.getMotionRepresentations(t, acc, gyr);
                 
                 % Extract features
-                motionFeatures = obj.computeMotionFeatures(t, rep, frameLength);
+                motionFeatures = obj.computeMotionFeatures(t, rep, frameLength, overlap);
                 
-                % Analyse 
+                % Analyse HR vs. motion correlations
+                
+                
+                % Get HR error for fitbit and band, assuming Polar is ground truth
+                
+                
+                % Predict HR Error 
+                
                 
             end
             
@@ -449,7 +459,7 @@ classdef MotionHR
         end
           
         % Compute features from the motion representations
-        function features = computeMotionFeatures(obj, t, rep, frameLen)
+        function features = computeMotionFeatures(obj, t, rep, frameLen, overlap)
             
             repPointers = fieldnames(rep); 
             
@@ -457,7 +467,7 @@ classdef MotionHR
                 
                 rp = repPointers{i};
                 repData = [t,rep.(rp)];
-                [frames, t_frames] = obj.splitToFramesByTime(repData, frameLen, 50);
+                [frames, t_frames] = obj.splitToFramesByTime(repData, frameLen, overlap);
  
                 for j=1:length(frames)
                     frame = frames{j};
