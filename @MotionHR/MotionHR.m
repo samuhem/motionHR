@@ -228,10 +228,21 @@ classdef MotionHR
                 % Analyse HR vs. motionFeatures
                 [corrs{i}, feats2dhr{i}] = obj.compareSignals(polarHR, motionFeatures);
                 
+                % Analyse band error with motionFeatures
+                
+                
             end
             
+            % Aggregate
+            allFeats = [];
+            for i=1:length(feats2dhr)
+                allFeats = [allFeats; feats2dhr{i}];
+            end
+
             % Train a model to predict HR Error
-            rtree = fitrtree(feats(:,1:end-1), feats(:,end), 'maxnumsplits', 50);
+            gt = allFeats(:,end);
+            allFeats = allFeats(:,1:end-1);
+            rtree = fitrtree(allFeats, gt, 'maxnumsplits', 50);
             
         end
 
@@ -359,7 +370,7 @@ classdef MotionHR
                 
                 % Compare against TD features
                 for j=1:size(td_motionRep,2)
-                    feature = [t_motionRep, td_motionRep(:,j)];
+                    feature = [t_motionFeats, td_motionRep(:,j)];
                     % Correlation
                     rawCorr_td(i,j) = corr(feature(:,2), heartRate(:,2));
                 end
