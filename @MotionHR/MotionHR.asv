@@ -356,7 +356,14 @@ classdef MotionHR
                 for j=1:size(td_motionRep,2)
                     feature = [t_motionRep, td_motionRep(:,j)];
                     
-                    a=1;
+                    % synchronize heartRate and features
+                    aligned = alignTimeseries(feature, heartRate);
+                    l_zero  = aligned(:,3) == 0;
+                    aligned(l_zero,3) = NaN;
+                    aligned(:,3) = fillmissing(aligned(:,3), 'linear');
+                    
+                    
+                    
                     
                 end
                 
