@@ -213,22 +213,25 @@ classdef MotionHR
                 
                 % Extract features
                 motionFeatures = obj.computeMotionFeatures(t, rep, frameLength, overlap);
+                repnames = fieldnames(motionFeatures);
                 
                 % Interpolate HR
-                polarHR  = obj.interpolateHR(raw_polarHR, frameLength, overlap);
-                fitbitHR = obj.interpolateHR(raw_fitbitHR, frameLength, overlap);
-                bandHR   = obj.interpolateHR(raw_bandHR, frameLength, overlap);
-                
-                % Analyse HR vs. motionFeatures
-                obj.compareSignals(polarHR, motionFeatures);
+                t_motionFeatures = motionFeatures.(repnames{1}).t;
+                polarHR  = obj.interpolateHR(raw_polarHR, t_motionFeatures);
+                fitbitHR = obj.interpolateHR(raw_fitbitHR, t_motionFeatures);
+                bandHR   = obj.interpolateHR(raw_bandHR, t_motionFeatures);
                 
                 % Get HR error for fitbit and band, assuming Polar is ground truth
+                hrErr_fitbit = polarHR - fitbitHR;
+                hrErr_band   = polarHR - bandHR;
                 
-                
-                % Train a model to predict HR Error 
-                
+                % Analyse HR vs. motionFeatures
+                [corrs{i}, feats2dhr{i}] = obj.compareSignals(polarHR, motionFeatures);
                 
             end
+            
+            % Train a model to predict HR Error
+            rtree = fitrtree(feats(:,1:end-1), feats(:,end), 'maxnumsplits', 50);
             
         end
 
@@ -338,43 +341,49 @@ classdef MotionHR
         % =================================================================
         % ANALYSIS (PRIVATE)
         % =================================================================
-
+  
         % Compare heartrate with motionFeatures
-        function res = compareSignals(obj, heartRate, motionFeatures)
-
-            t_hr = heartRate(:,1);
-            hr   = heartRate(:,2);
+        function [rawCorr,feats2dhr] = compareSignals(obj, heartRate, motionFeatures)
 
             motionReps = fieldnames(motionFeatures);
+            allFeats = [];
+            dhr = diff(heartRate(:,2));
+            t_motionFeats = motionFeatures.(motionReps{1}).t;
             
             for i=1:length(motionReps)
-                t_motionRep  = motionFeatures.(motionReps{i}).t;
                 td_motionRep = motionFeatures.(motionReps{i}).td;
                 fd_motionRep = motionFeatures.(motionReps{i}).fd;
+                
+                % build matrix with all the features
+                allFeats = [allFeats, td_motionRep(2:end,:), fd_motionRep(2:end,:)];
                 
                 % Compare against TD features
                 for j=1:size(td_motionRep,2)
                     feature = [t_motionRep, td_motionRep(:,j)];
-                    
-                    a=1;
-                    
+                    % Correlation
+                    rawCorr_td(i,j) = corr(feature(:,2), heartRate(:,2));
                 end
                 
-                
+                % Compare against FD features
+                for j=1:size(fd_motionRep,2)
+                    feature = [t_motionFeats, fd_motionRep(:,j)];
+                    % Correlation
+                    rawCorr_fd(i,j) = corr(feature(:,2), heartRate(:,2));
+                end
             end
             
-            
+            rawCorr   = [rawCorr_td,rawCorr_fd];
+            feats2dhr = [allFeats, dhr];
             
         end
         
         % Interpolate Heartrate measurements
-        function interpHR = interpolateHR(obj, rawHR, frameLen, overlap)
-            [frames, t_frame] = obj.splitToFramesByTime(rawHR, frameLen, overlap);
-            for i=1:length(frames)
-                hr(i) = mean(frames{i});
-                t(i) = mean(t_frame{i});
-            end
-            interpHR = [t; hr]';
+        function hr = interpolateHR(obj, rawHR, t_motionFeatures)
+            % interpolate heartrate to match feature freq.
+            hr = alignTimeseries(t_motionFeatures, rawHR);
+            l_zero  = hr(:,2) == 0;
+            hr(l_zero,2) = NaN;
+            hr(:,2) = fillmissing(hr(:,2), 'linear'); % Could use other interp. method here also
         end
         
         % Get data for activity
